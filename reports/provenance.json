@@ -1,0 +1,11 @@
+{
+  "source_url": "https://files.consumerfinance.gov/f/documents/CCDB_Export_20_July_2026.zip",
+  "source_page": "https://www.consumerfinance.gov/foia-requests/foia-electronic-reading-room/cfpb-consumer-complaint-database-narratives-archive/",
+  "archive_sha256": "aafebbaaf0962c3d29532411ac2133c01bae830b7ea6ed1931a6e42278437d18",
+  "source_records": 672036,
+  "source_records_with_narratives": 10002,
+  "sample_rows": 10000,
+  "sampling": "reservoir; Python random.Random(42)",
+  "sample_sha256": "2d1ee542640022ae8ffbe64425396a13553af3de4f4c698b19ff7feba992f150",
+  "limitation": "Sample of this archive segment only, not all historical CFPB complaints or current product traffic."
+}

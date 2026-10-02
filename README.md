@@ -1,127 +1,88 @@
-# Consumer Complaints Classification
+# Complaint Routing: Evaluated NLP Application
 
-A text classification project for routing Consumer Financial Protection Bureau complaint narratives into financial product categories.
+Classify financial complaint narratives into product categories and send uncertain cases to a local human-review queue.
+
+![Application preview](docs/complaint-routing.jpg)
 
 ## Problem
 
-Financial institutions and regulators receive large volumes of consumer complaints. Manual triage is slow, inconsistent, and difficult to scale. Complaint narratives can be used to predict the product category and route cases faster, but the dataset is large, text-heavy, and class-imbalanced.
-
-This project explores a scalable NLP workflow for classifying complaint narratives.
+Complaint triage needs more than a predicted label. This application pairs a reproducible text classifier with class-level evaluation, a validation-selected routing threshold, and a review workflow. The original exploratory [notebook](complaints.ipynb) remains available alongside a separate executable training and inference path.
 
 ## Dataset / Source
 
-The project uses complaint data from the Consumer Financial Protection Bureau (CFPB) Consumer Complaint Database.
+The new evaluation uses a seeded sample of **10,000 public narratives** from the [CFPB July 2026 archive](https://www.consumerfinance.gov/foia-requests/foia-electronic-reading-room/cfpb-consumer-complaint-database-narratives-archive/). After removing unusable text, normalized exact duplicates, conflicting labels, and classes with fewer than 20 examples, **9,375 records** remain.
 
-- Source: https://www.consumerfinance.gov/data-research/consumer-complaints/
-- Records processed in the notebook: 887,808 complaints with narratives
-- Target: `Product`
-- Main text feature: `Consumer complaint narrative`
-- Additional fields explored: `Sub-product`, `Issue`, and `Sub-issue`
-
-The raw CFPB database contains millions of complaints, but many records do not include public complaint narratives. The modeling workflow filters to records with usable narrative text.
+This is a new evaluation, not a rerun of the notebook's previously documented 887,808-record experiment. [Provenance](reports/provenance.json) records the archive URL, checksums, sampling method, and source counts. Raw narratives and trained artifacts stay local.
 
 ## Tech Stack
 
-- Python
-- pandas / NumPy
-- scikit-learn
-- NLTK
-- Matplotlib / Seaborn
-- Jupyter Notebook
+Python · pandas · scikit-learn · TF-IDF · SGDClassifier · Streamlit · SQLite · pytest
 
 ## Architecture / Workflow
 
 ```mermaid
 flowchart LR
-    A[Raw CFPB complaints] --> B[Filter records with narratives]
-    B --> C[Clean and normalize text]
-    C --> D[Vectorize complaint narratives]
-    D --> E[Train/test split]
-    E --> F[SGDClassifier]
-    F --> G[Evaluate predictions]
+    A[Official archive or local CSV] --> B[Clean and deduplicate]
+    B --> C[Stratified train / validation / test]
+    C --> D[Train-only TF-IDF and classifier]
+    D --> E[Validation threshold selection]
+    E --> F[Untouched test evaluation]
+    D --> G[Saved pipeline]
+    G --> H[Streamlit product suggestion]
+    H --> I[Local manual-review queue]
 ```
 
-Supporting modules:
+The vectorizer is fitted only on training data. Exact normalized narrative duplicates are removed before splitting. A majority-class baseline makes the improvement explicit. Scores are not calibrated probabilities.
+
+## Results / Metrics
+
+Reproducible sample run: **5,625 training, 1,875 validation, and 1,875 test records**, with seed 42.
+
+| Held-out test metric | Majority baseline | TF-IDF + SGD |
+|---|---:|---:|
+| Accuracy | 0.241 | 0.788 |
+| Macro F1 | 0.035 | 0.700 |
+| Weighted F1 | 0.094 | 0.782 |
+
+At the validation-selected score threshold of **0.50**, **43.8%** of test cases qualified for a suggested route, with **94.0%** accuracy within that subset. The remaining cases require review. These sample results do not guarantee future performance.
+
+Inspect [full evaluation and limitations](reports/evaluation.json), [per-class precision/recall/F1](reports/per-class.csv), and the [confusion matrix](reports/confusion-matrix.csv). Runtime versions are recorded in the evaluation report. Threshold selection uses validation data only, targeting at least 85% accuracy among at least 20 accepted validation cases. If no threshold qualifies, all cases require review.
+
+## Project Files
 
 | File | Purpose |
 |---|---|
-| [complaints.ipynb](complaints.ipynb) | Main notebook for exploration, preprocessing, modeling, and evaluation |
-| [text_cleaner.py](text_cleaner.py) | Reusable text cleaning helpers |
-| [text_cleaner_prompt.py](text_cleaner_prompt.py) | Prompt/context helper for text cleaner work |
-| [requirements.txt](requirements.txt) | Python dependencies |
-
-## Modeling Approach
-
-The notebook uses a large-scale linear classification workflow:
-
-- Filter to complaints with narrative text.
-- Use complaint narratives as model input.
-- Use `Product` as the target label.
-- Convert text into sparse numeric features.
-- Train an `SGDClassifier`, which is suitable for high-dimensional sparse text data.
-- Evaluate predictions on a held-out split.
-
-## Results / Hiring Evidence
-
-This project shows:
-
-- Large-scale text preprocessing on 887,808 complaint narratives.
-- Multi-class classification across financial product categories.
-- Practical handling of severe class imbalance.
-- A reusable text cleaning utility for NLP workflows.
-- Model selection based on scale: sparse features plus a linear classifier.
-
-Key dataset characteristics documented in the project:
-
-| Characteristic | Value |
-|---|---:|
-| Processed complaint narratives | 887,808 |
-| Product categories | 18+ |
-| Largest class share | Credit reporting services, about 57% |
-| Train/test split | 67% / 33% |
+| [download_sample.py](routing/download_sample.py) | Download the fixed official archive and select a reproducible sample |
+| [model.py](routing/model.py) | Data validation, splitting, baseline, training, evaluation, and routing |
+| [train.py](routing/train.py) | Training command-line interface |
+| [app.py](routing/app.py) | Local product suggestion and review interface |
+| [queue.py](routing/queue.py) | Persistent SQLite queue and reviewed-product decisions |
+| [tests](tests) | Input, duplicate, threshold, persistence, training, and interface checks |
 
 ## How to Run
-
-1. Clone the repository.
-
-```bash
-git clone https://github.com/LukeOpany/consumer-complaints-classification.git
-cd consumer-complaints-classification
-```
-
-2. Create and activate a virtual environment.
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+pip install -r requirements-app.txt
+python -m routing.download_sample
+python -m routing.train --csv data/complaints.csv
+streamlit run routing/app.py
 ```
 
-3. Install dependencies.
+For an existing CFPB CSV, skip downloading and provide a file containing `Product` and `Consumer complaint narrative` columns. The downloader uses the archive because the live API no longer supplied narratives during this implementation.
 
 ```bash
-pip install -r requirements.txt
+python -m routing.train --csv /path/to/complaints.csv --output artifacts --reports reports
+python -m pytest -q
 ```
 
-4. Open the notebook.
+The trained model defaults to `artifacts/routing.joblib`; override with `ROUTING_MODEL`. Only load a locally trained or otherwise trusted joblib file. `REVIEW_QUEUE` sets the SQLite path (default `data/review-queue.sqlite`). No complaint is sent to an external service by the app. Clicking **Save to manual-review queue** stores it locally; **Complete review** records the reviewed product. High-scoring suggestions can also be reviewed.
 
-```bash
-jupyter notebook complaints.ipynb
-```
+## What This Demonstrates / Production Improvements
 
-## What I Learned / Production Improvements
+**Implemented:** train-only feature fitting, duplicate handling before splitting, a measured baseline, minority-class evaluation, model persistence, inference, threshold-based abstention, review completion, and automated checks.
 
-This project demonstrates:
+**Limits:** the sample covers one archive segment; random splitting does not measure temporal drift, near-duplicates may remain, rare classes are excluded, and unfamiliar products may receive an incorrect confident label. The application is a local prototype without shared-user authentication. Use public or synthetic examples.
 
-- Scaling NLP preprocessing to hundreds of thousands of records.
-- Turning free-text complaint narratives into model-ready features.
-- Thinking beyond accuracy when classes are heavily imbalanced.
-- Choosing a classifier that fits sparse high-dimensional text data.
-
-Production next steps:
-
-- Move preprocessing and training code from notebook cells into a versioned Python pipeline.
-- Save the vectorizer and trained model with `joblib`.
-- Add a clear evaluation table with accuracy, macro F1, weighted F1, and per-class recall.
-- Add model explainability with top weighted terms per product category.
-- Add a FastAPI endpoint for complaint-category inference.
-- Add monitoring for class drift and confidence thresholds.
+**Next steps:** chronological evaluation, probability calibration, out-of-distribution detection, review feedback evaluation, drift monitoring, and authenticated deployment. Review decisions are retained but are not automatically used for retraining.

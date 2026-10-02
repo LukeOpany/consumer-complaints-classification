@@ -19,3 +19,17 @@ __pycache__/
 # Virtual environment
 venv/
 env/
+
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+data/
+artifacts/
+*.sqlite
+
+# Publish aggregate evaluation evidence, not raw narratives or model binaries.
+!reports/evaluation.json
+!reports/provenance.json
+!reports/per-class.csv
+!reports/confusion-matrix.csv
